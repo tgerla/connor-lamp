@@ -1,22 +1,30 @@
-#include <OneButton.h>
+#include <Button.h>
 #include <FastLED.h>
 #include <MillisTimer.h>
 
 FASTLED_USING_NAMESPACE;
 
-#define DEBUG 0
+#define DEBUG 1
 
 const int maxBrightness = 255;
 const int buttonPin1 = A5;
 const int OFF_THRESHOLD = 16;
 const int DIMMING_SPEED = 4;
 
-OneButton button1(buttonPin1, true);
+#define PULLUP false       //To keep things simple, we use the Arduino's internal pullup resistor.
+#define INVERT false       //Since the pullup resistor will keep the pin high unless the
+                           //switch is closed, this is negative logic, i.e. a high state
+                           //means the button is NOT pressed. (Assuming a normally open switch.)
+#define DEBOUNCE_MS 20     //A debounce time of 20 milliseconds usually works well for tactile button switches.
+
+Button myBtn(buttonPin1, PULLUP, INVERT, DEBOUNCE_MS);    //Declare the button
 
 #define NUM_LEDS 60
 CRGB leds[NUM_LEDS];
 
 volatile int isDimming = false;
+volatile int isLit = true;
+volatile int okToDim = true;
 
 volatile int curBrightness = 128*8;
 int dimmingDirection = DIMMING_SPEED;
@@ -37,7 +45,7 @@ void lightUpdate() {
 }
 
 void nextPalette() {
-  currentPalette++;
+    currentPalette++;
 
 #if DEBUG
   Serial.print("Current palette: ");
@@ -55,37 +63,48 @@ void nextPalette() {
 // perform one color cycle. driven by a timer.
 void doDimming() {
     if(!isDimming) {
-      return;
+        return;
     }
 
     int actualBrightness;
 
     if(curBrightness > 2024) {
-      curBrightness = 2024;
+        curBrightness = 2024;
     }
     else if(curBrightness < 1)
-      dimmingDirection = DIMMING_SPEED;
+        dimmingDirection = DIMMING_SPEED;
 
     curBrightness += dimmingDirection;
 
     if(curBrightness < OFF_THRESHOLD*8) {
-      actualBrightness = 0;
-      isDimming = false;
+        actualBrightness = 0;
+        isDimming = false;
+        isLit = false;
+        okToDim = false;
     }
-    else
-      actualBrightness = curBrightness/8;
-    
+    else {
+        isLit = true;
+        actualBrightness = curBrightness/8;
+    }
+
     FastLED.setBrightness(actualBrightness);
     FastLED.show();
 }
 
 void startDimming() {
-  dimmingDirection = -dimmingDirection;
-  isDimming = true;
+#if DEBUG
+    Serial.println("entered startDimming");
+#endif
+    dimmingDirection = -dimmingDirection;
+    isDimming = true;
+    isLit = true;
 }
 
 void stopDimming() {
-  isDimming = false;
+#if DEBUG
+    Serial.println("entered stopDimming");
+#endif
+    isDimming = false;
 }
 
 
@@ -94,7 +113,7 @@ void setup() {
   Serial.begin(9600);
 #endif
 
-  cycleTimer.expiredHandler(doDimming);
+//  cycleTimer.expiredHandler(doDimming);
  
   FastLED.addLeds<APA102, 3, 2, BGR>(leds, NUM_LEDS);
   FastLED.setCorrection( TypicalLEDStrip);
@@ -109,16 +128,27 @@ void setup() {
 
   fill_palette(leds, NUM_LEDS, 0, 256/NUM_LEDS, myPal, 255, LINEARBLEND);
 
-  button1.setClickTicks(75);
+/*  button1.setClickTicks(75);
   button1.attachClick(nextPalette);
   button1.attachLongPressStart(startDimming);
-  button1.attachLongPressStop(stopDimming);
+  button1.attachLongPressStop(stopDimming); */
 }
 
 void loop() {
-  button1.tick();
-  doDimming();
-  lightUpdate();
+    myBtn.read();
+
+    if(myBtn.pressedFor(1000) && !isDimming && okToDim)
+        startDimming();
+
+    if(myBtn.wasReleased()) {
+        if(!isDimming && isLit)
+            nextPalette();
+        stopDimming();
+        okToDim = true;
+    }
+
+    doDimming();
+    lightUpdate();
 }
 
 

@@ -1,21 +1,21 @@
 #include <Arduino.h>
 #include <FastLED.h>
-#include <JC_Button.h>
+#include <OneButton.h>
 
 FASTLED_USING_NAMESPACE;
 
 #define DEBUG 1
 
-const int maxBrightness = 128;
+const int maxBrightness = 192;
 const int buttonPin1 = D1;
 const int dataPin = D4;
 const int clockPin = D5;
 const int OFF_THRESHOLD = 16;
 const int DIMMING_SPEED = 8; // higher is faster
-const int CYCLE_SPEED = 8;   // higher is slower
+int CYCLE_SPEED = 64;        // higher is slower
 
 #define PULLUP                                                                 \
-  true // To keep things simple, we use the Arduino's internal pullup resistor.
+  false // To keep things simple, we use the Arduino's internal pullup resistor.
 #define INVERT                                                                 \
   false // Since the pullup resistor will keep the pin high unless the
         // switch is closed, this is negative logic, i.e. a high state
@@ -25,7 +25,7 @@ const int CYCLE_SPEED = 8;   // higher is slower
      // switches.
 #define FRAMES_PER_SECOND 240
 
-Button myBtn(buttonPin1, PULLUP, INVERT, DEBOUNCE_MS); // Declare the button
+OneButton myButton(buttonPin1, PULLUP);
 
 #define NUM_LEDS 60
 CRGB leds[NUM_LEDS];
@@ -54,7 +54,7 @@ void lightUpdate() {
   FastLED.delay(1000 / FRAMES_PER_SECOND);
 
   ledClock++;
-  if (ledClock > CYCLE_SPEED) {
+  if (ledClock > (currentPalette == 0 ? 4 : CYCLE_SPEED)) {
     idx++;
     ledClock = 0;
     if (idx > 255)
@@ -65,13 +65,13 @@ void lightUpdate() {
 void nextPalette() {
   currentPalette++;
 
+  if (currentPalette == gGradientPaletteCount)
+    currentPalette = 0;
+
 #if DEBUG
   Serial.print("Current palette: ");
   Serial.println(gPaletteNames[currentPalette]);
 #endif
-
-  if (currentPalette == gGradientPaletteCount)
-    currentPalette = 0;
 
   CRGBPalette16 pal = gGradientPalettes[currentPalette];
   fill_palette(leds, NUM_LEDS, 0, 256 / NUM_LEDS, pal, 255, LINEARBLEND);
@@ -130,16 +130,16 @@ void setup() {
   delay(1000);
   // 3, 2
   FastLED.addLeds<APA102, dataPin, clockPin, BGR>(leds, NUM_LEDS);
-  FastLED.setCorrection(TypicalLEDStrip);
-  FastLED.setTemperature(OvercastSky);
-  FastLED.setDither(0);
+  FastLED.setCorrection(TypicalPixelString);
+  FastLED.setTemperature(Halogen);
+  FastLED.setDither(true);
 
   set_max_power_in_milliwatts(15000);
   curBrightness = maxBrightness * 8;
   FastLED.setBrightness(curBrightness / 8);
 
-  CRGBPalette16 myPal = gGradientPalettes[12];
-  currentPalette = 12;
+  CRGBPalette16 myPal = gGradientPalettes[0];
+  currentPalette = 0;
 
   fill_palette(leds, NUM_LEDS, 0, 256 / NUM_LEDS, myPal, 255, LINEARBLEND);
 
@@ -147,21 +147,25 @@ void setup() {
     button1.attachClick(nextPalette);
     button1.attachLongPressStart(startDimming);
     button1.attachLongPressStop(stopDimming); */
+  myButton.attachLongPressStart(startDimming);
+  myButton.attachLongPressStop(stopDimming);
+  myButton.attachClick(nextPalette);
 }
 
 void loop() {
-  myBtn.read();
+  //  myBtn.read();
 
-  if (myBtn.pressedFor(1000) && !isDimming && okToDim)
-    startDimming();
+  //  if (myBtn.pressedFor(1000) && !isDimming && okToDim)
+  //    startDimming();
 
-  if (myBtn.wasReleased()) {
-    if (!isDimming && isLit)
-      nextPalette();
-    stopDimming();
-    okToDim = true;
-  }
+  //  if (myBtn.wasReleased()) {
+  //    if (!isDimming && isLit)
+  //      nextPalette();
+  //    stopDimming();
+  //   okToDim = true;
+  // }
 
+  myButton.tick();
   doDimming();
   lightUpdate();
 }
@@ -531,6 +535,18 @@ DEFINE_GRADIENT_PALETTE(Chrome_Shine_gp){0,   121, 136, 125, 30,  182, 191,
 DEFINE_GRADIENT_PALETTE(HostGrad3_gp){0,   2, 51,  5,   127, 56,
                                       121, 7, 255, 186, 221, 89};
 
+DEFINE_GRADIENT_PALETTE(allWhite){0, 255, 255, 255, 255, 255, 255, 255};
+
+// clang-format off
+DEFINE_GRADIENT_PALETTE(timLava){
+    //  background: linear-gradient(90deg, rgba(255,0,0,1) 0%, rgba(255,241,0,1)
+    //  22%, rgba(255,144,0,1) 46%, rgba(255,0,0,1) 75%, rgba(255,246,0,1)
+    //  100%);
+    0,   255, 0,   0,
+    64, 255, 144, 0,
+    255, 255, 0, 0};
+// clang-format on
+
 // Single array of defined cpt-city color palettes.
 // This will let us programmatically choose one based on
 // a number, rather than having to activate each explicitly
@@ -542,62 +558,24 @@ DEFINE_GRADIENT_PALETTE(HostGrad3_gp){0,   2, 51,  5,   127, 56,
 // This list of color palettes acts as a "playlist"; you can
 // add or delete, or re-arrange as you wish.
 const TProgmemRGBGradientPalettePtr gGradientPalettes[] = {
-    GMT_drywet_gp, HostGrad3_gp, Chrome_Shine_gp, es_ocean_breeze_036_gp,
-    cw2_078_gp, cw2_038_gp, cw1_029_gp, es_candide_33_gp, es_chic_22_gp,
-    Sunset_Real_gp, es_rivendell_15_gp,
-    //  rgi_15_gp,
-    //  retro2_16_gp,
-    Analogous_1_gp, es_pinksplash_08_gp,
-    //  Coral_reef_gp,
-    //  es_ocean_breeze_068_gp,
-    // es_pinksplash_07_gp,
-    //  es_vintage_01_gp,
-    departure_gp, es_landscape_64_gp, es_landscape_33_gp,
-    //  rainbowsherbet_gp,
-    gr65_hult_gp,
-    //  gr64_hult_gp,
-    //  ib_jul01_gp,
-    //  es_vintage_57_gp,
-    ib15_gp,
-    //  Fuschia_7_gp,
-    es_emerald_dragon_08_gp, lava_gp,
-    //  fire_gp,
-    //  Colorfull_gp,
-    //  Magenta_Evening_gp,
-    Pink_Purple_gp,
-    //  es_autumn_19_gp,
-    BlacK_Blue_Magenta_White_gp, BlacK_Magenta_Red_gp,
-    BlacK_Red_Magenta_Yellow_gp, Blue_Cyan_Yellow_gp};
+    timLava,        Rainbow_gp,     allWhite,
+    GMT_drywet_gp,  cw2_078_gp,     cw1_029_gp,
+    Sunset_Real_gp, Analogous_1_gp, es_landscape_33_gp,
+    gr65_hult_gp,   lava_gp,        Blue_Cyan_Yellow_gp};
 
 const char *gPaletteNames[] = {
-    "GMT_drywet_gp", "HostGrad3_gp",
-
-    "Chrome_Shine_gp", "es_ocean_breeze_036_gp", "cw2_078_gp", "cw2_038_gp",
-    "cw1_029_gp", "es_candide_33_gp", "es_chic_22_gp", "Sunset_Real_gp",
-    "es_rivendell_15_gp",
-    //  "rgi_15_gp",
-    //  "retro2_16_gp",
-    "Analogous_1_gp", "es_pinksplash_08_gp",
-    //  "Coral_reef_gp",
-    //  "es_ocean_breeze_068_gp",
-    //  "es_pinksplash_07_gp",
-    // "es_vintage_01_gp",
-    "departure_gp", "es_landscape_64_gp", "es_landscape_33_gp",
-    //  "rainbowsherbet_gp",
+    "timLava",
+    "RainbowColors_p",
+    "allWhite",
+    "GMT_drywet_gp",
+    "cw2_078_gp",
+    "cw1_029_gp",
+    "Sunset_Real_gp",
+    "Analogous_1_gp",
+    "es_landscape_33_gp", // peach to light blue, good for morning
     "gr65_hult_gp",
-    //  "gr64_hult_gp",
-    //  "ib_jul01_gp",
-    //  "es_vintage_57_gp",
-    "ib15_gp",
-    //  "Fuschia_7_gp",
-    "es_emerald_dragon_08_gp", "lava_gp",
-    //  "fire_gp",
-    //  "Colorfull_gp",
-    //  "Magenta_Evening_gp",
-    "Pink_Purple_gp",
-    //  "es_autumn_19_gp",
-    "BlacK_Blue_Magenta_White_gp", "BlacK_Magenta_Red_gp",
-    "BlacK_Red_Magenta_Yellow_gp", "Blue_Cyan_Yellow_gp"};
+    "lava_gp",
+    "Blue_Cyan_Yellow_gp"};
 
 // Count of how many cpt-city gradients are defined:
 const uint8_t gGradientPaletteCount =

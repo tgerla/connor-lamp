@@ -68,7 +68,7 @@
 
 // Background color for 'unlit' pixels
 // Can be set to CRGB::Black if desired.
-CRGB gBackgroundColor = CRGB(CRGB::FairyLight).nscale8_video(16);
+CRGB gBackgroundColor = CRGB::Black;
 // Example of dim incandescent fairy light background color
 // CRGB gBackgroundColor = CRGB(CRGB::FairyLight).nscale8_video(16);
 
@@ -151,15 +151,11 @@ const TProgmemRGBPalette16 Snow_p FL_PROGMEM = {
 
 // A palette reminiscent of large 'old-school' C9-size tree lights
 // in the five classic colors: red, orange, green, blue, and white.
-#define C9_Red 0xB80400
-#define C9_Orange 0x902C02
-#define C9_Green 0x046002
-#define C9_Blue 0x070758
-#define C9_White 0x606820
-const TProgmemRGBPalette16 RetroC9_p FL_PROGMEM = {
-    C9_Red,    C9_Orange, C9_Red,   C9_Orange, C9_Orange, C9_Red,
-    C9_Orange, C9_Red,    C9_Green, C9_Green,  C9_Green,  C9_Green,
-    C9_Blue,   C9_Blue,   C9_Blue,  C9_White};
+const TProgmemRGBPalette16 Purples_p FL_PROGMEM = {
+    CRGB::Red, CRGB::Red, CRGB::Purple, CRGB::Purple,
+    CRGB::Red, CRGB::Red, CRGB::Purple, CRGB::Purple,
+    CRGB::Red, CRGB::Red, CRGB::Purple, CRGB::Purple,
+    CRGB::Red, CRGB::Red, CRGB::Purple, CRGB::Purple};
 
 // A cold, icy pale blue palette
 #define Ice_Blue1 0x0C1040
@@ -173,7 +169,7 @@ const TProgmemRGBPalette16 Ice_p FL_PROGMEM = {
 // Add or remove palette names from this list to control which color
 // palettes are used, and in what order.
 const TProgmemRGBPalette16 *ActivePaletteList[] = {
-    &RetroC9_p,       &BlueWhite_p,   &RainbowColors_p, &FairyLight_p,
+    &Purples_p,       &BlueWhite_p,   &RainbowColors_p, &FairyLight_p,
     &RedGreenWhite_p, &PartyColors_p, &RedWhite_p,      &Snow_p,
     &Holly_p,         &Ice_p};
 
@@ -186,7 +182,8 @@ const TProgmemRGBPalette16 *ActivePaletteList[] = {
 //  of one cycle of the brightness wave function.
 //  The 'high digits' are also used to determine whether this pixel
 //  should light at all during this cycle, based on the TWINKLE_DENSITY.
-CRGB computeOneTwinkle(uint32_t ms, uint8_t salt, uint8_t twinkleSpeed) {
+CRGB computeOneTwinkle(uint32_t ms, uint8_t salt, uint8_t twinkleSpeed,
+                       CRGBPalette16 pal, uint8_t twinkleDensity) {
   uint16_t ticks = ms >> (8 - twinkleSpeed);
   uint8_t fastcycle8 = ticks;
   uint16_t slowcycle16 = (ticks >> 8) + salt;
@@ -195,15 +192,14 @@ CRGB computeOneTwinkle(uint32_t ms, uint8_t salt, uint8_t twinkleSpeed) {
   uint8_t slowcycle8 = (slowcycle16 & 0xFF) + (slowcycle16 >> 8);
 
   uint8_t bright = 0;
-  if (((slowcycle8 & 0x0E) / 2) < TWINKLE_DENSITY) {
+  if (((slowcycle8 & 0x0E) / 2) < twinkleDensity) {
     bright = attackDecayWave8(fastcycle8);
   }
 
   uint8_t hue = slowcycle8 - salt;
   CRGB c;
   if (bright > 0) {
-    c = ColorFromPalette(*ActivePaletteList[gCurrentPalette], hue, bright,
-                         NOBLEND);
+    c = ColorFromPalette(pal, hue, bright, NOBLEND);
     if (COOL_LIKE_INCANDESCENT == 1) {
       coolLikeIncandescent(c, fastcycle8);
     }
@@ -218,7 +214,8 @@ CRGB computeOneTwinkle(uint32_t ms, uint8_t salt, uint8_t twinkleSpeed) {
 //  "CalculateOneTwinkle" on each pixel.  It then displays
 //  either the twinkle color of the background color,
 //  whichever is brighter.
-void drawTwinkles(CRGBSet &L, uint8_t twinkleSpeed) {
+void drawTwinkles(CRGBSet &L, uint8_t twinkleSpeed, CRGBPalette16 pal, CRGB bg,
+                  uint8_t twinkleDensity) {
   // "PRNG16" is the pseudorandom number generator
   // It MUST be reset to the same starting value each time
   // this function is called, so that the sequence of 'random'
@@ -226,13 +223,6 @@ void drawTwinkles(CRGBSet &L, uint8_t twinkleSpeed) {
   uint16_t PRNG16 = 11337;
 
   uint32_t clock32 = millis();
-
-  // Set up the background color, "bg".
-  // if AUTO_SELECT_BACKGROUND_COLOR == 1, and the first two colors of
-  // the current palette are identical, then a deeply faded version of
-  // that color is used for the background color
-  CRGB bg;
-  bg = gBackgroundColor; // just use the explicitly defined background color
 
   uint8_t backgroundBrightness = bg.getAverageLight();
 
@@ -251,7 +241,8 @@ void drawTwinkles(CRGBSet &L, uint8_t twinkleSpeed) {
     // We now have the adjusted 'clock' for this pixel, now we call
     // the function that computes what color the pixel should be based
     // on the "brightness = f( time )" idea.
-    CRGB c = computeOneTwinkle(myclock30, myunique8, twinkleSpeed);
+    CRGB c = computeOneTwinkle(myclock30, myunique8, twinkleSpeed, pal,
+                               twinkleDensity);
 
     uint8_t cbright = c.getAverageLight();
     int16_t deltabright = cbright - backgroundBrightness;
